@@ -22,7 +22,10 @@ from a2c_ppo_acktr.storage import RolloutStorage
 from evaluation import evaluate, evaluate_multi, eval_movie
 
 def set_reward_weight(envs, new_weight):
-    envs.venv.venv.envs[0].env.env.move_reward_weight = new_weight
+    envs.venv.venv.set_attr('move_reward_weight', new_weight)
+    #envs.venv.venv.envs[0].env.env.move_reward_weight = new_weight
+
+
 
 def main():
     args = get_args()
@@ -109,10 +112,10 @@ def main():
     num_updates = int(
         args.num_env_steps) // args.num_steps // args.num_processes
     for j in range(num_updates):
-#        if j < 250:
-#            set_reward_weight(envs, np.linspace(1,0,250)[j])
-#        else:
-#            set_reward_weight(envs, 0)
+        if j < 250:
+            set_reward_weight(envs, np.linspace(1,0,250)[j])
+        else:
+            set_reward_weight(envs, 0)
 
         if args.use_linear_lr_decay:
             # decrease learning rate linearly
