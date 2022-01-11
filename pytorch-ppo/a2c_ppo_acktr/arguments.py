@@ -155,6 +155,11 @@ def get_args():
         default=False,
         help='disables CUDA training')
     parser.add_argument(
+        '--dense',
+        action='store_true',
+        default=False,
+        help='Use dense eval')
+    parser.add_argument(
         '--use-proper-time-limits',
         action='store_true',
         default=False,

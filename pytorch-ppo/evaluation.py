@@ -125,9 +125,9 @@ def evaluate_multi(actor_critic0, actor_critic1, obs_rms, env_name, seed, num_pr
     print(f"P0 wins: {w0}, P1 wins: {w1}, draws: {draws}")
     return w0, w1, draws
 
-def eval_movie(movie_path, actor_critic0, actor_critic1, obs_rms, env_name, seed, num_processes, eval_log_dir, device):
+def eval_movie(movie_path, actor_critic0, actor_critic1, obs_rms, env_name, seed, num_processes, eval_log_dir, device, args):
     eval_envs = make_vec_envs(env_name, seed + num_processes, 1,
-                              None, eval_log_dir, device, True)
+                              None, eval_log_dir, device, True, dense=args.dense)
 
     vec_norm = utils.get_vec_normalize(eval_envs)
     if vec_norm is not None:
@@ -176,9 +176,9 @@ def eval_movie(movie_path, actor_critic0, actor_critic1, obs_rms, env_name, seed
     print("DONE WITH MOVIE")
     print(f"PLAYER0 got {rew0} and PLAYER1 got {rew1}")
 
-def eval_winrate(player, actor_critic0, actor_critic1, obs_rms, env_name, seed, num_processes, eval_log_dir, device, num_episodes=100):
+def eval_winrate(player, actor_critic0, actor_critic1, obs_rms, env_name, seed, num_processes, eval_log_dir, device, args, num_episodes=100):
     eval_envs = make_vec_envs(env_name, seed + num_processes, num_processes,
-                              None, eval_log_dir, device, True)
+                              None, eval_log_dir, device, True, dense=args.dense)
 
     vec_norm = utils.get_vec_normalize(eval_envs)
     if vec_norm is not None:
