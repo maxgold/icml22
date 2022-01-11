@@ -74,7 +74,7 @@ class MujocoEnv(gym.Env):
         try:
             self._set_observation_space(observation)
         except:
-            print("Hopefully in multiagent env")
+            pass
 
         self.seed()
 

@@ -45,6 +45,16 @@ class Ant(Agent):
 
         return reward, done, reward_info
 
+    @property
+    def xpos(self):
+        return self.get_body_com("torso")[0]
+
+    @property
+    def ground_gained(self):
+        if self.move_left:
+            return -self.xpos + 1.5
+        else:
+            return self.xpos + 1.5
 
     def _get_obs(self):
         '''

@@ -105,7 +105,6 @@ class Agent:
 
         return torch.concat(values), torch.concat(actions), torch.concat(logprobs), torch.concat(rhs).unsqueeze(1)
 
-
 def main():
     args = get_args()
 
@@ -203,11 +202,11 @@ def main():
 
     learn_agent0 = agent0
     old_agent0 = Agent(0)
-    old_agent0.add_policy(copy.deepcopy(actor_critic0), get_obs_rms(envs))
+    old_agent0.add_policy(copy.deepcopy(actor_critic0), copy.deepcopy(get_obs_rms(envs)))
     old_agent0.init(args.num_processes//2)
     learn_agent1 = agent1
     old_agent1 = Agent(1)
-    old_agent1.add_policy(copy.deepcopy(actor_critic1), get_obs_rms(envs))
+    old_agent1.add_policy(copy.deepcopy(actor_critic1), copy.deepcopy(get_obs_rms(envs)))
     old_agent1.init(args.num_processes//2)
     p0numep = 0
     p1numep = 0
@@ -236,7 +235,6 @@ def main():
         w1 = 0
         # TODO: when should we reset obs_rms?
         while eps < args.num_episodes:
-            print(eps)
             start = time.time()
 
             for step in range(args.num_steps):
@@ -362,14 +360,9 @@ def main():
                 print(f"Updates {j}, Player0 wins {w0} Player1 wins {w1} P0Draws {p0draws} P1Draws {p1draws}")
                 print("=============================================================================================")
                 train_stats.append((w0,w1,p0draws,p1draws))
-                with open("logs.pk", "wb") as handle:
+                with open(f"{args.log_dir}/logs.pk", "wb") as handle:
                     pickle.dump([train_stats,eval_p0,eval_p1], handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-
-            if (j % args.cache_interval == 0) and (len(episode_rewards0) > 1):
-                player0_policies.append(copy.deepcopy(actor_critic0))
-                player1_policies.append(copy.deepcopy(actor_critic1))
-                obs_rms_cache.append(copy.deepcopy(utils.get_vec_normalize(envs).obs_rms))
 
         if (args.eval_interval is not None and len(episode_rewards0) > 1
                 and j % args.eval_interval == 0):
@@ -386,15 +379,14 @@ def main():
 #            eval_p1.append([ep1_w0, ep1_w1, ep1_draw])
 #            with open("logs.pk", "wb") as handle:
 #                pickle.dump([train_stats,eval_p0,eval_p1], handle, protocol=pickle.HIGHEST_PROTOCOL)
-            eval_movie(f"movies/m{j}.mp4", actor_critic0, actor_critic1, obs_rms0, args.env_name, args.seed,
-                     args.num_processes, eval_log_dir, device)
-            with open("p0_policies.pk", "wb") as handle:
+#            eval_movie(f"movies/m{j}.mp4", actor_critic0, actor_critic1, obs_rms0, args.env_name, args.seed,
+#                     args.num_processes, eval_log_dir, device)
+            with open(f"{args.log_dir}/p0_policies.pk", "wb") as handle:
                 pickle.dump(old_agent0, handle, protocol=pickle.HIGHEST_PROTOCOL)
-            with open("p1_policies.pk", "wb") as handle:
+            with open(f"{args.log_dir}/p1_policies.pk", "wb") as handle:
                 pickle.dump(old_agent1, handle, protocol=pickle.HIGHEST_PROTOCOL)
-    with open("logs.pk", "wb") as handle:
+    with open(f"{args.log_dir}/logs.pk", "wb") as handle:
         pickle.dump([train_stats,eval_p0,eval_p1], handle, protocol=pickle.HIGHEST_PROTOCOL)
-    import IPython as ipy; ipy.embed(colors='neutral')
 
 if __name__ == "__main__":
     main()

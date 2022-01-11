@@ -53,7 +53,8 @@ class MultiAgentEnv(Env):
         self, agent_names,
         world_xml_path=WORLD_XML, agent_map=AGENT_MAP,
         scene_xml_path=None, move_reward_weight=1.0,
-        init_pos=None, rgb=None, agent_args=None
+        init_pos=None, rgb=None, agent_args=None,
+        dense=True
     ):
         '''
             agent_args is a list of kwargs for each agent
@@ -77,6 +78,7 @@ class MultiAgentEnv(Env):
             #print("Creating Scene XML")
             #print(init_pos)
         #init_pos = [(-1, -1.5, .75), (-1, 1.5, .75)]
+        self.dense = dense
         _, self._env_xml_path = create_multiagent_xml(
             world_xml_path, all_agent_xml_paths, agent_scopes,
             # outdir=os.path.join(os.path.dirname(__file__), "assets"),
@@ -114,20 +116,34 @@ class MultiAgentEnv(Env):
         )
 
     def goal_rewards(self, infos=None, agent_dones=None):
-        touchdowns = [self.agents[i].reached_goal()
-                      for i in range(self.n_agents)]
-        num_reached_goal = sum(touchdowns)
-        goal_rews = [0. for _ in range(self.n_agents)]
-        if num_reached_goal != 1:
-            return goal_rews, num_reached_goal > 0
-        for i in range(self.n_agents):
-            if touchdowns[i]:
-                goal_rews[i] = self.GOAL_REWARD
-                if infos:
-                    infos[i]['winner'] = True
-            else:
-                goal_rews[i] = - self.GOAL_REWARD
-        return goal_rews, True
+        if self.dense:
+            agent_pos = [self.agents[i].ground_gained
+                         for i in range(self.n_agents)]
+            winner = np.argmax(agent_pos)
+            goal_rews = [0. for _ in range(self.n_agents)]
+            for i in range(self.n_agents):
+                if i == winner:
+                    goal_rews[i] = self.GOAL_REWARD
+                    if infos:
+                        infos[i]["winner"] = True
+                else:
+                    goal_rews[i] = -self.GOAL_REWARD
+            return goal_rews, True
+        else:
+            touchdowns = [self.agents[i].reached_goal()
+                          for i in range(self.n_agents)]
+            num_reached_goal = sum(touchdowns)
+            goal_rews = [0. for _ in range(self.n_agents)]
+            if num_reached_goal != 1:
+                return goal_rews, num_reached_goal > 0
+            for i in range(self.n_agents):
+                if touchdowns[i]:
+                    goal_rews[i] = self.GOAL_REWARD
+                    if infos:
+                        infos[i]['winner'] = True
+                else:
+                    goal_rews[i] = - self.GOAL_REWARD
+            return goal_rews, True
 
     def _get_done(self, dones, game_done):
         done = np.all(dones)
