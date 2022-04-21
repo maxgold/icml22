@@ -98,7 +98,7 @@ def make_vec_envs(env_name,
     ]
 
 
-    if env_name in ["sumo-ants-v0", "run-to-goal-ants-v0", "gym-run-to-goal-ants-v0"]:
+    if env_name in ["sumo-ants-v0", "run-to-goal-ants-v0", "gym-run-to-goal-ants-v0", "kick-and-defend-v0"]:
         if len(envs) > 1:
             envs = SubprocVecEnvMulti(envs)
         else:

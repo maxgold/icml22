@@ -83,10 +83,10 @@ register(
                 os.path.dirname(__file__), "new_envs",
                 "assets", 'world_body_arena.xml'
             ),
-            'init_pos': [(-1, 0, 2.5), (1, 0, 2.5)],
+            'init_pos': [(-1, 0, 1.25), (1, 0, 1.25)],
             'max_episode_steps': 500,
-            'min_radius': 2.5,
-            'max_radius': 4.5
+            'min_radius': 1.5,
+            'max_radius': 2,
             },
 )
 

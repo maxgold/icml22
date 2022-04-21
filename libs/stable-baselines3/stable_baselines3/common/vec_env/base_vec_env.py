@@ -158,6 +158,7 @@ class VecEnv(ABC):
         :param actions: the action
         :return: observation, reward, done, information
         """
+
         self.step_async(actions)
         return self.step_wait()
 

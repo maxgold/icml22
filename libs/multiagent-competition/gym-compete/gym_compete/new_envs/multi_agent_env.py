@@ -132,21 +132,22 @@ class MultiAgentEnv(Env):
         return goal_rews, True
 
     def goal_rewards(self, infos=None, agent_dones=None):
-        if self.stepper < self.max_steps:
-            return self.goal_routine(infos, agent_dones)
-        elif self.dense:
-            agent_pos = [self.agents[i].ground_gained
-                         for i in range(self.n_agents)]
-            winner = np.argmax(agent_pos)
-            goal_rews = [0. for _ in range(self.n_agents)]
-            for i in range(self.n_agents):
-                if i == winner:
-                    goal_rews[i] = self.GOAL_REWARD
-                    if infos:
-                        infos[i]["winner"] = True
-                else:
-                    goal_rews[i] = -self.GOAL_REWARD
-            return goal_rews, True
+        if self.dense:
+            if any(agent_dones) or self.stepper>=self.max_steps:
+                agent_pos = [self.agents[i].ground_gained
+                             for i in range(self.n_agents)]
+                winner = np.argmax(agent_pos)
+                goal_rews = [0. for _ in range(self.n_agents)]
+                for i in range(self.n_agents):
+                    if i == winner:
+                        goal_rews[i] = self.GOAL_REWARD
+                        if infos:
+                            infos[i]["winner"] = True
+                    else:
+                        goal_rews[i] = -self.GOAL_REWARD
+                return goal_rews, True
+            else:
+                return self.goal_routine(infos, agent_dones)
         else:
             return self.goal_routine(infos, agent_dones)
 

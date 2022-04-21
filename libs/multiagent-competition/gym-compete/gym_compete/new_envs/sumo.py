@@ -7,7 +7,7 @@ class SumoEnv(MultiAgentEnv):
     '''
     '''
 
-    def __init__(self, max_episode_steps=500, min_radius=1, max_radius=3.5, **kwargs):
+    def __init__(self, max_episode_steps=500, min_radius=.75, max_radius=1, **kwargs):
         super(SumoEnv, self).__init__(**kwargs)
         self._max_episode_steps = max_episode_steps
         self._elapsed_steps = 0
@@ -89,7 +89,6 @@ class SumoEnv(MultiAgentEnv):
                 elif self.agent_contacts:
                     goal_rews[j] += self.GOAL_REWARD
                     infos[j]['winner'] = True
-            # import ipdb; ipdb.set_trace()
         elif any(past_arena):
             done = True
             for j in range(self.n_agents):
@@ -159,7 +158,7 @@ class SumoEnv(MultiAgentEnv):
 
     def _set_geom_radius(self):
         gs = self.env_scene.model.geom_size.copy()
-        gs[self.arena_id][0] = self.RADIUS
+        gs[self.arena_id][0] = 1
         self.env_scene.model.__setattr__('geom_size', gs)
         self.env_scene.model.forward()
 
@@ -194,6 +193,7 @@ class SumoEnv(MultiAgentEnv):
 
     def reset(self, margins=None, version=None, **kwargs):
         ob = self._reset(version=version)
+        self.stepper = 0
         if margins:
             for i in range(self.n_agents):
                 self.agents[i].set_margin(margins[i])

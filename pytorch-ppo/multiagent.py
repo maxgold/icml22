@@ -25,6 +25,60 @@ def set_reward_weight(envs, new_weight):
     envs.venv.venv.set_attr('move_reward_weight', new_weight)
     #envs.venv.venv.envs[0].env.env.move_reward_weight = new_weight
 
+class Agent:
+    def __init__(self, playerid):
+        self.playerid = playerid
+        self.policies = []
+        self.obs_rms = []
+
+    def add_policy(self, policy, obs_rms):
+        # TODO: need to add a wrapper that adds the obs_rms to each actor as we run it...
+        self.policies.append(policy)
+        self.obs_rms.append(obs_rms)
+        self.weights = np.arange(1, len(self.policies)+1).astype(float)
+        self.weights[-10:] *= 100
+        self.weights /= self.weights.sum()
+
+    def sample_policy(self):
+        ind = np.random.choice(range(len(self.policies)), p=self.weights)
+        return self.policies[ind], self.obs_rms[ind]
+
+    def init(self, num_envs):
+        self.env_policies = []
+        self.env_obs_rms = []
+        for _ in range(num_envs):
+            policy, obs_rms = self.sample_policy()
+            self.env_policies.append(policy)
+            self.env_obs_rms.append(obs_rms)
+
+    def new_policy(self, ind):
+        policy, obs_rms = self.sample_policy()
+        self.env_policies[ind] = policy
+        self.env_obs_rms[ind] = obs_rms
+
+    def act(self, obs, recurrent, dones, cur_obs_rms):
+        values = []
+        actions = []
+        logprobs = []
+        rhs = []
+        with torch.no_grad():
+            for i, (o, r, d) in enumerate(zip(obs, recurrent, dones)):
+                # TODO here should take care of normalizing with obs_rms....
+                # Need to call unnormalize obs with envs.obs_rms then
+                # renormalize with this obs_rms
+                policy = self.env_policies[i]
+                obs_rms = self.env_obs_rms[i]
+                o = unnormalize_obs(o.cpu().numpy(), cur_obs_rms[self.playerid])
+                o = normalize_obs(o, obs_rms[self.playerid])
+                o = torch.tensor(o).cuda().float()
+
+                tmp = self.env_policies[i].act(o.unsqueeze(0),r,d)
+                values.append(tmp[0])
+                actions.append(tmp[1])
+                logprobs.append(tmp[2])
+                rhs.append(tmp[3])
+
+        return torch.concat(values), torch.concat(actions), torch.concat(logprobs), torch.concat(rhs).unsqueeze(1)
 
 
 def main():
@@ -108,6 +162,8 @@ def main():
     train_stats = []
     eval_p0 = []
     eval_p1 = []
+    old_agent0 = Agent(0)
+    old_agent1 = Agent(1)
 
     num_updates = int(
         args.num_env_steps) // args.num_steps // args.num_processes
@@ -235,10 +291,18 @@ def main():
                 player0_policies.append(copy.deepcopy(actor_critic0))
                 player1_policies.append(copy.deepcopy(actor_critic1))
                 obs_rms_cache.append(copy.deepcopy(utils.get_vec_normalize(envs).obs_rms))
+                old_agent0.add_policy(copy.deepcopy(actor_critic0), utils.get_vec_normalize(envs).obs_rms)
+                old_agent1.add_policy(copy.deepcopy(actor_critic1), utils.get_vec_normalize(envs).obs_rms)
 
         if (args.eval_interval is not None and len(episode_rewards0) > 1
                 and j % args.eval_interval == 0):
             obs_rms0 = [utils.get_vec_normalize(envs).obs_rms[0], obs_rms_cache[0][1]]
+            with open(f"{args.log_dir}/cache.pk", "wb") as handle:
+                pickle.dump([player0_policies,player1_policies,obs_rms_cache], handle, protocol=pickle.HIGHEST_PROTOCOL)
+            with open(f"{args.log_dir}/p0_policies.pk", "wb") as handle:
+                pickle.dump(old_agent0, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            with open(f"{args.log_dir}/p1_policies.pk", "wb") as handle:
+                pickle.dump(old_agent1, handle, protocol=pickle.HIGHEST_PROTOCOL)
 #            print("evaluating current player0 against first player1")
 #            ep0_w0, ep0_w1, ep0_draw = evaluate_multi(actor_critic0, player1_policies[0], obs_rms0, args.env_name, args.seed,
 #                     args.num_processes, eval_log_dir, device)
@@ -251,8 +315,8 @@ def main():
 #            eval_p1.append([ep1_w0, ep1_w1, ep1_draw])
 #            with open("logs.pk", "wb") as handle:
 #                pickle.dump([train_stats,eval_p0,eval_p1], handle, protocol=pickle.HIGHEST_PROTOCOL)
-            eval_movie(f"movies/m{j}.mp4", actor_critic0, actor_critic1, obs_rms0, args.env_name, args.seed,
-                     args.num_processes, eval_log_dir, device)
+#            eval_movie(f"movies/m{j}.mp4", actor_critic0, actor_critic1, obs_rms0, args.env_name, args.seed,
+#                     args.num_processes, eval_log_dir, device)
     with open("logs.pk", "wb") as handle:
         pickle.dump([train_stats,eval_p0,eval_p1], handle, protocol=pickle.HIGHEST_PROTOCOL)
 

@@ -17,9 +17,9 @@ from a2c_ppo_acktr import algo, utils
 from a2c_ppo_acktr.algo import gail
 from a2c_ppo_acktr.arguments import get_args
 from a2c_ppo_acktr.envs import make_vec_envs
-from a2c_ppo_acktr.model import Policy
+from a2c_ppo_acktr.model import Policy2
 from a2c_ppo_acktr.storage import RolloutStorage
-from evaluation import evaluate, evaluate_multi, eval_movie
+from evaluation import evaluate, evaluate_multi, eval_movie_new
 from stable_baselines3.common.running_mean_std import RunningMeanStd
 
 def set_reward_weight(envs, new_weight):
@@ -97,13 +97,16 @@ class Agent:
                 o = normalize_obs(o, obs_rms[self.playerid])
                 o = torch.tensor(o).cuda().float()
 
-                tmp = self.env_policies[i].act(o.unsqueeze(0),r.unsqueeze(0),d)
+                tmp = self.env_policies[i].act(o.unsqueeze(0),r,d)
                 values.append(tmp[0])
                 actions.append(tmp[1])
                 logprobs.append(tmp[2])
                 rhs.append(tmp[3])
 
-        return torch.concat(values), torch.concat(actions), torch.concat(logprobs), torch.concat(rhs)
+        return torch.concat(values), torch.concat(actions), torch.concat(logprobs), torch.concat(rhs).unsqueeze(1)
+
+
+
 
 def main():
     args = get_args()
@@ -127,14 +130,14 @@ def main():
     envs = make_vec_envs(args.env_name, args.seed, args.num_processes,
                          args.gamma, args.log_dir, device, False, dense=args.dense)
 
-    actor_critic0 = Policy(
+    actor_critic = Policy2(
         envs.observation_space[0].shape,
         envs.action_space[0],
         base_kwargs={'recurrent': args.recurrent_policy})
-    actor_critic0.to(device)
+    actor_critic.to(device)
 
-    agent0 = algo.PPO(
-        actor_critic0,
+    agent = algo.PPO2(
+        actor_critic,
         args.clip_param,
         args.ppo_epoch,
         args.num_mini_batch,
@@ -143,53 +146,25 @@ def main():
         lr=args.lr,
         eps=args.eps,
         max_grad_norm=args.max_grad_norm)
-
-    actor_critic1 = Policy(
-        envs.observation_space[1].shape,
-        envs.action_space[1],
-        base_kwargs={'recurrent': args.recurrent_policy})
-    actor_critic1.to(device)
-
-    agent1 = algo.PPO(
-        actor_critic1,
-        args.clip_param,
-        args.ppo_epoch,
-        args.num_mini_batch,
-        args.value_loss_coef,
-        args.entropy_coef,
-        lr=args.lr,
-        eps=args.eps,
-        max_grad_norm=args.max_grad_norm)
-
 
     player0_policies = []
     player1_policies = []
     obs_rms_cache = []
 
 
-    rollouts0 = RolloutStorage(args.num_steps, args.num_processes//2,
+    rollouts0 = RolloutStorage(args.num_steps, args.num_processes,
                               envs.observation_space[0].shape, envs.action_space[0],
-                              actor_critic0.recurrent_hidden_state_size)
-    opp_rollouts0 = RolloutStorage(args.num_steps, args.num_processes//2,
-                              envs.observation_space[0].shape, envs.action_space[0],
-                              actor_critic0.recurrent_hidden_state_size)
-    rollouts1 = RolloutStorage(args.num_steps, args.num_processes//2,
+                              actor_critic.recurrent_hidden_state_size)
+    rollouts1 = RolloutStorage(args.num_steps, args.num_processes,
                               envs.observation_space[1].shape, envs.action_space[1],
-                              actor_critic1.recurrent_hidden_state_size)
-    opp_rollouts1 = RolloutStorage(args.num_steps, args.num_processes//2,
-                              envs.observation_space[1].shape, envs.action_space[1],
-                              actor_critic1.recurrent_hidden_state_size)
+                              actor_critic.recurrent_hidden_state_size)
 
 
     obs = envs.reset()
-    rollouts0.obs[0].copy_(obs[0][:args.num_processes//2])
+    rollouts0.obs[0].copy_(obs[0])
     rollouts0.to(device)
-    opp_rollouts0.obs[0].copy_(obs[0][args.num_processes//2:])
-    opp_rollouts0.to(device)
-    rollouts1.obs[1].copy_(obs[1][args.num_processes//2:])
+    rollouts1.obs[1].copy_(obs[1])
     rollouts1.to(device)
-    opp_rollouts1.obs[1].copy_(obs[1][:args.num_processes//2])
-    opp_rollouts1.to(device)
 
     episode_rewards0 = deque(maxlen=100)
     episode_rewards1 = deque(maxlen=100)
@@ -199,21 +174,6 @@ def main():
     eval_p1 = []
 
 
-    cache_freq = args.cache_freq
-    if args.resume:
-        with open(f"{args.log_dir}/p0_policies.pk", "rb") as handle:
-            old_agent0 = pickle.load(handle)
-        with open(f"{args.log_dir}/p1_policies.pk", "rb") as handle:
-            old_agent1 = pickle.load(handle)
-    else:
-        learn_agent0 = agent0
-        old_agent0 = Agent(0)
-        old_agent0.add_policy(copy.deepcopy(actor_critic0), copy.deepcopy(get_obs_rms(envs)))
-        old_agent0.init(args.num_processes//2)
-        learn_agent1 = agent1
-        old_agent1 = Agent(1)
-        old_agent1.add_policy(copy.deepcopy(actor_critic1), copy.deepcopy(get_obs_rms(envs)))
-        old_agent1.init(args.num_processes//2)
     p0numep = 0
     p1numep = 0
 
@@ -245,26 +205,12 @@ def main():
             for step in range(args.num_steps):
                 # Sample actions
                 with torch.no_grad():
-                    value0a, action0a, action_log_prob0a, recurrent_hiddenstate0a = agent0.actor_critic.act(
+                    value0, action0, action_log_prob0, recurrent_hiddenstate0 = agent.act(
                         rollouts0.obs[step], rollouts0.recurrent_hidden_states[step],
-                        rollouts0.masks[step])
-                    value0b, action0b, action_log_prob0b, recurrent_hiddenstate0b = old_agent0.act(
-                        opp_rollouts0.obs[step], opp_rollouts0.recurrent_hidden_states[step],
-                        opp_rollouts0.masks[step], get_obs_rms(envs))
-                    value1a, action1a, action_log_prob1a, recurrent_hiddenstate1a = old_agent1.act(
-                        opp_rollouts1.obs[step], opp_rollouts1.recurrent_hidden_states[step],
-                        opp_rollouts1.masks[step], get_obs_rms(envs))
-                    value1b, action1b, action_log_prob1b, recurrent_hiddenstate1b = agent1.actor_critic.act(
+                        rollouts0.masks[step], 0)
+                    value1, action1, action_log_prob1, recurrent_hiddenstate1 = agent.act(
                         rollouts1.obs[step], rollouts1.recurrent_hidden_states[step],
-                        rollouts1.masks[step])
-                    action0 = torch.concat((action0a,action0b))
-                    value0 = torch.concat((value0a,value0b))
-                    action_log_prob0 = torch.concat((action_log_prob0a,action_log_prob0b))
-                    recurrent_hiddenstate0 = torch.concat((recurrent_hiddenstate0a.squeeze(),recurrent_hiddenstate0b.squeeze()))
-                    action1 = torch.concat((action1a,action1b))
-                    value1 = torch.concat((value1a,value1b))
-                    action_log_prob1 = torch.concat((action_log_prob1a,action_log_prob1b))
-                    recurrent_hiddenstate1 = torch.concat((recurrent_hiddenstate1a.squeeze(),recurrent_hiddenstate1b.squeeze()))
+                        rollouts1.masks[step], 1)
 
                 # Obser reward and next obs
                 obs, reward, done, infos = envs.step((action0, action1))
@@ -272,7 +218,6 @@ def main():
                 for i, info in enumerate(infos[:16]):
                     d = True
                     if 'episode' in info[0].keys():
-                        old_agent1.new_policy(i)
                         epoch_p0ep += 1
                         if "winner" in info[0].keys():
                             d = False
@@ -284,12 +229,8 @@ def main():
                         if d:
                             p0draws += 1
                         p0numep += 1
-                        if p0numep % cache_freq == 0:
-                            print(f"ADDING POLICY !! Current length {len(old_agent0.policies)}")
-                            old_agent0.add_policy(copy.deepcopy(actor_critic0), get_obs_rms(envs))
                 for i, info in enumerate(infos[16:]):
                     if 'episode' in info[1].keys():
-                        old_agent0.new_policy(i)
                         epoch_p1ep += 1
                         if "winner" in info[0].keys():
                             d = False
@@ -300,8 +241,6 @@ def main():
                         if d:
                             p1draws += 1
                         p1numep += 1
-                        if p1numep % cache_freq == 0:
-                            old_agent1.add_policy(copy.deepcopy(actor_critic1), get_obs_rms(envs))
 
                 masks = torch.FloatTensor(
                     [[0.0] if done_ else [1.0] for done_ in done])
@@ -311,22 +250,21 @@ def main():
                 bad_masks1 = torch.FloatTensor(
                     [[0.0] if 'bad_transition' in info[1].keys() else [1.0]
                      for info in infos])
-                rollouts0.insert(obs[0][:args.num_processes//2], recurrent_hiddenstate0a, action0a,
-                                 action_log_prob0a, value0a, reward[0][:args.num_processes//2], masks[:args.num_processes//2], bad_masks0[:args.num_processes//2])
-                opp_rollouts1.insert(obs[1][:args.num_processes//2], recurrent_hiddenstate1a, action1a,
-                                     action_log_prob1a, value1a, reward[1][:args.num_processes//2], masks[:args.num_processes//2], bad_masks1[:args.num_processes//2])
-                opp_rollouts0.insert(obs[0][args.num_processes//2:], recurrent_hiddenstate0b, action0b,
-                                     action_log_prob0b, value0b, reward[0][args.num_processes//2:], masks[args.num_processes//2:], bad_masks0[args.num_processes//2:])
-                rollouts1.insert(obs[1][args.num_processes//2:], recurrent_hiddenstate1b, action1b,
-                                 action_log_prob1b, value1b, reward[1][args.num_processes//2:], masks[args.num_processes//2:], bad_masks1[args.num_processes//2:])
+                rollouts0.insert(obs[0], recurrent_hiddenstate0, action0,
+                                 action_log_prob0, value0, reward[0], masks, bad_masks0)
+                rollouts1.insert(obs[0], recurrent_hiddenstate1, action1,
+                                 action_log_prob1, value1, reward[1], masks, bad_masks1)
 
             with torch.no_grad():
-                next_value0 = actor_critic0.get_value(
+                obs = rollouts0.obs[-1]
+                player0t = (torch.zeros(obs.shape[0], 1)).to(device).long()
+                player1t = (torch.ones(obs.shape[0], 1)).to(device).long()
+                next_value0 = actor_critic.get_value(
                     rollouts0.obs[-1], rollouts0.recurrent_hidden_states[-1],
-                    rollouts0.masks[-1]).detach()
-                next_value1 = actor_critic1.get_value(
+                    rollouts0.masks[-1], player0t).detach()
+                next_value1 = actor_critic.get_value(
                     rollouts1.obs[-1], rollouts1.recurrent_hidden_states[-1],
-                    rollouts1.masks[-1]).detach()
+                    rollouts1.masks[-1], player1t).detach()
 
 
             rollouts0.compute_returns(next_value0, args.use_gae, args.gamma,
@@ -334,8 +272,8 @@ def main():
             rollouts1.compute_returns(next_value1, args.use_gae, args.gamma,
                                      args.gae_lambda, args.use_proper_time_limits)
 
-            value_loss0, action_loss0, dist_entropy0 = agent0.update(rollouts0)
-            value_loss1, action_loss1, dist_entropy1 = agent1.update(rollouts1)
+            value_loss0, action_loss0, dist_entropy0 = agent.update(rollouts0, 0)
+            #value_loss1, action_loss1, dist_entropy1 = agent.update(rollouts1, 1)
 
             rollouts0.after_update()
             rollouts1.after_update()
@@ -351,13 +289,9 @@ def main():
                     pass
 
                 torch.save([
-                    actor_critic0,
+                    actor_critic,
                     getattr(utils.get_vec_normalize(envs), 'obs_rms', None)
                 ], os.path.join(save_path, args.env_name + "0.pt"))
-                torch.save([
-                    actor_critic1,
-                    getattr(utils.get_vec_normalize(envs), 'obs_rms', None)
-                ], os.path.join(save_path, args.env_name + "1.pt"))
 
             if j % args.log_interval == 0 and len(episode_rewards0) > 1:
                 total_num_steps = args.num_steps * args.num_processes
@@ -373,12 +307,10 @@ def main():
 
         if (args.eval_interval is not None and len(episode_rewards0) > 1
                 and j % args.eval_interval == 0):
-            eval_movie(f"{args.log_dir}/movies/m{j}.mp4", actor_critic0, actor_critic1, get_obs_rms(envs), args.env_name, args.seed,
+            eval_movie_new(f"{args.log_dir}/movies/m{j}.mp4", actor_critic, get_obs_rms(envs), args.env_name, args.seed,
                      args.num_processes, eval_log_dir, device, args)
             with open(f"{args.log_dir}/p0_policies.pk", "wb") as handle:
-                pickle.dump(old_agent0, handle, protocol=pickle.HIGHEST_PROTOCOL)
-            with open(f"{args.log_dir}/p1_policies.pk", "wb") as handle:
-                pickle.dump(old_agent1, handle, protocol=pickle.HIGHEST_PROTOCOL)
+                pickle.dump(agent, handle, protocol=pickle.HIGHEST_PROTOCOL)
     with open(f"{args.log_dir}/logs.pk", "wb") as handle:
         pickle.dump([train_stats,eval_p0,eval_p1], handle, protocol=pickle.HIGHEST_PROTOCOL)
 

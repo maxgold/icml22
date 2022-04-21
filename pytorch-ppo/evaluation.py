@@ -138,9 +138,11 @@ def eval_movie(movie_path, actor_critic0, actor_critic1, obs_rms, env_name, seed
     eval_episode_rewards1 = []
 
     obs = eval_envs.reset()
-    eval_recurrent_hidden_states = torch.zeros(
-        num_processes, actor_critic0.recurrent_hidden_state_size, device=device)
-    eval_masks = torch.zeros(num_processes, 1, device=device)
+    eval_recurrent_hidden_states0 = torch.zeros(
+        1, actor_critic0.recurrent_hidden_state_size, device=device)
+    eval_recurrent_hidden_states1 = torch.zeros(
+        1, actor_critic1.recurrent_hidden_state_size, device=device)
+    eval_masks = torch.zeros(1, 1, device=device)
 
     frames = []
     rew0, rew1 = 0,0
@@ -149,15 +151,70 @@ def eval_movie(movie_path, actor_critic0, actor_critic1, obs_rms, env_name, seed
     while not done.any():
 
         with torch.no_grad():
-            _, action0, _, eval_recurrent_hidden_states = actor_critic0.act(
+            _, action0, _, eval_recurrent_hidden_states0 = actor_critic0.act(
                 obs[0],
-                eval_recurrent_hidden_states,
+                eval_recurrent_hidden_states0,
                 eval_masks,
                 deterministic=True)
             _, action1, _, eval_recurrent_hidden_states = actor_critic1.act(
                 obs[1],
+                eval_recurrent_hidden_states1,
+                eval_masks,
+                deterministic=True)
+
+        # Obser reward and next obs
+        obs, rew, done, infos = eval_envs.step((action0, action1))
+        rew0 += rew[0][0]
+        rew1 += rew[0][1]
+        frames.append(eval_envs.render(mode="rgb_array"))
+
+        eval_masks = torch.tensor(
+            [[0.0] if any(done_) else [1.0] for done_ in done],
+            dtype=torch.float32,
+            device=device)
+
+    eval_envs.close()
+    imageio.mimsave(movie_path, frames, fps=50)
+    print("DONE WITH MOVIE")
+    print(f"PLAYER0 got {rew0} and PLAYER1 got {rew1}")
+
+def eval_movie_new(movie_path, actor_critic, obs_rms, env_name, seed, num_processes, eval_log_dir, device, args):
+    eval_envs = make_vec_envs(env_name, seed + num_processes, 1,
+                              None, eval_log_dir, device, True, dense=args.dense)
+
+    vec_norm = utils.get_vec_normalize(eval_envs)
+    if vec_norm is not None:
+        vec_norm.eval()
+        vec_norm.obs_rms = obs_rms
+
+    eval_episode_rewards0 = []
+    eval_episode_rewards1 = []
+
+    obs = eval_envs.reset()
+    eval_recurrent_hidden_states = torch.zeros(
+        num_processes, 1, device=device)
+    eval_masks = torch.zeros(num_processes, 1, device=device)
+
+    frames = []
+    rew0, rew1 = 0,0
+    player0t = torch.zeros(1).to(device).long()
+    player1t = torch.ones(1).to(device).long()
+
+    done = np.array((False,))
+    while not done.any():
+
+        with torch.no_grad():
+            _, action0, _, eval_recurrent_hidden_states = actor_critic.act(
+                obs[0],
                 eval_recurrent_hidden_states,
                 eval_masks,
+                player0t,
+                deterministic=True)
+            _, action1, _, eval_recurrent_hidden_states = actor_critic.act(
+                obs[1],
+                eval_recurrent_hidden_states,
+                eval_masks,
+                player1t,
                 deterministic=True)
 
         # Obser reward and next obs
@@ -232,6 +289,115 @@ def eval_winrate(player, actor_critic0, actor_critic1, obs_rms, env_name, seed, 
                 if "winner" in info[1].keys():
                     if player == 1:
                         actor_critic1.new_policy(i)
+                    d = False
+                    win1 += 1
+
+        eval_masks = torch.FloatTensor(
+            [[0.0] if done_ else [1.0] for done_ in done])
+
+    eval_envs.close()
+    return win0 / total, win1/total, (total-win0-win1)/total
+
+def eval_movie_post(movie_path, actor_critic0, actor_critic1, obs_rms, env_name, seed, num_processes, eval_log_dir, device, args):
+    eval_envs = make_vec_envs(env_name, seed + num_processes, 1,
+                              None, eval_log_dir, device, True, dense=args.dense)
+
+    vec_norm = utils.get_vec_normalize(eval_envs)
+    if vec_norm is not None:
+        vec_norm.eval()
+        vec_norm.obs_rms = obs_rms
+
+    eval_episode_rewards0 = []
+    eval_episode_rewards1 = []
+
+    obs = eval_envs.reset()
+    eval_recurrent_hidden_states = torch.zeros(
+        num_processes, 1, device=device)
+    eval_masks = torch.zeros(num_processes, 1, device=device)
+
+    frames = []
+    rew0, rew1 = 0,0
+
+    done = np.array((False,))
+    while not done.any():
+
+        with torch.no_grad():
+            _, action0, _, eval_recurrent_hidden_states = actor_critic0.act(
+                obs[0],
+                eval_recurrent_hidden_states,
+                eval_masks,
+                get_obs_rms(eval_envs))
+            _, action1, _, eval_recurrent_hidden_states = actor_critic1.act(
+                obs[1],
+                eval_recurrent_hidden_states,
+                eval_masks,
+                get_obs_rms(eval_envs))
+
+        # Obser reward and next obs
+        obs, rew, done, infos = eval_envs.step((action0, action1))
+        rew0 += rew[0][0]
+        rew1 += rew[0][1]
+        frames.append(eval_envs.render(mode="rgb_array"))
+
+        eval_masks = torch.tensor(
+            [[0.0] if any(done_) else [1.0] for done_ in done],
+            dtype=torch.float32,
+            device=device)
+
+    eval_envs.close()
+    imageio.mimsave(movie_path, frames, fps=50)
+    print("DONE WITH MOVIE")
+    print(f"PLAYER0 got {rew0} and PLAYER1 got {rew1}")
+
+def eval_winrate_post(actor_critic0, actor_critic1, obs_rms, env_name, seed, num_processes, eval_log_dir, device, args, num_episodes=100):
+    eval_envs = make_vec_envs(env_name, seed + num_processes, num_processes,
+                              None, eval_log_dir, device, True, dense=args.dense)
+
+    vec_norm = utils.get_vec_normalize(eval_envs)
+    if vec_norm is not None:
+        vec_norm.eval()
+        vec_norm.obs_rms = obs_rms
+
+    eval_episode_rewards0 = []
+    eval_episode_rewards1 = []
+
+    obs = eval_envs.reset()
+    eval_recurrent_hidden_states = torch.zeros(
+        num_processes, 1, device=device)
+    eval_masks = torch.zeros(num_processes, 1, device=device)
+
+    rew0, rew1 = 0,0
+    win0 = 0
+    win1 = 0
+    total = 0
+
+    done = np.array((False,))
+    step = 0
+    while total < num_episodes:
+
+        with torch.no_grad():
+            _, action0, _, eval_recurrent_hidden_states = actor_critic0.act(
+                obs[0],
+                eval_recurrent_hidden_states,
+                eval_masks,
+                get_obs_rms(eval_envs))
+            _, action1, _, eval_recurrent_hidden_states = actor_critic1.act(
+                obs[1],
+                eval_recurrent_hidden_states,
+                eval_masks,
+                get_obs_rms(eval_envs))
+
+        # Obser reward and next obs
+        obs, rew, done, infos = eval_envs.step((action0, action1))
+        for i, info in enumerate(infos):
+            d = True
+            if 'episode' in info[0].keys():
+                if "winner" in info[0].keys():
+                    d = False
+                    win0 += 1
+                total += 1
+            if 'episode' in info[1].keys():
+                if "winner" in info[1].keys():
                     d = False
                     win1 += 1
 

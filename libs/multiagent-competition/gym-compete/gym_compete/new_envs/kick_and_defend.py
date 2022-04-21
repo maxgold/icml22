@@ -193,6 +193,7 @@ class KickAndDefend(MultiAgentEnv):
         return self._get_obs()
 
     def reset(self, seed=None, margins=None, version=None):
+        self.stepper = 0
         _ = self._reset(version=version)
         if self.agents[0].team == 'walker':
             self.walker_id = 0
